@@ -23,7 +23,7 @@ public class MicrosoftTestingPlatformRunnerRunLoopTests
     [TestMethod]
     public async Task RunAssemblyTestsInternalAsync_RunsTheTestsAndReturnsTheResult_OnAReusedHost()
     {
-        // Off mode: no warm-up - the loop must run once, recycle-if-poisoned on the plain
+        // Off mode: no warm-up, no retest - the loop must run once, recycle-if-poisoned on the plain
         // results and hand the built result back untouched.
         var options = new Mock<IStrykerOptions>();
         options.SetupGet(o => o.OptimizationMode).Returns(OptimizationModes.None);
@@ -40,6 +40,26 @@ public class MicrosoftTestingPlatformRunnerRunLoopTests
         server.RunCalls.ShouldBe(1);
         server.TestsSeen.ShouldBe(["keep"], "the run must pass only the tests the filter selects");
         result.ExecutedTests.IsEmpty.ShouldBeFalse();
+        runner.RetestStatistics.ShouldBe((0, 0), "a passing run on a healthy host must not trigger a retest");
+    }
+
+    [TestMethod, Timeout(2000)]
+    public async Task RunAssemblyTestsInternalAsync_RetestsAHiddenSurvivor_OnAFreshHost_AndCountsTheKilledRetest()
+    {
+        // First run: every test passes but the mutant was never reached - a hidden survivor. The retest
+        // on a fresh host reports failures, so the mutant is counted as killed by the retest.
+        using var server = new FakeAssemblyServer(
+            [Update(TestNodeStates.Passed)],
+            [Update(TestNodeStates.Failed, "Assert.Equal() Failure", "at Tests.Foo()")]);
+        using var runner = new FakeServerLoopRunner(server) { ActiveMutantId = 7 };
+
+        var (result, timedOut) = await runner.RunAssemblyTestsInternalAsync("fake.dll", testUidFilter: null);
+
+        timedOut.ShouldBeFalse();
+        server.RunCalls.ShouldBe(2, "the survivor must be retested exactly once on a fresh host");
+        runner.WarmUpCalls.ShouldBe(1, "the warm-up runs once on the reused host and is skipped on the fresh-host retest");
+        runner.RetestStatistics.ShouldBe((1, 1), "one hidden-survivor retest whose failing tests killed the mutant");
+        result.FailingTests.IsEmpty.ShouldBeFalse("the final result must be the fresh-host retest verdict");
     }
 
     [TestMethod, Timeout(2000)]

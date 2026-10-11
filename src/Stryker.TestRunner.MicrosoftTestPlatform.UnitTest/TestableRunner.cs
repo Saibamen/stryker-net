@@ -153,7 +153,7 @@ internal sealed class FakeServerLoopRunner : MicrosoftTestingPlatformRunner
     public int WarmUpCalls { get; private set; }
 
     // The runner keeps its servers in a private cache; faking the lookup hands every request the
-    // same fake, so fresh-host behavior is observable through the warm-up skip, not the cache.
+    // same fake, so the fresh-host retest is observable through the warm-up skip, not the cache.
     internal override Task<AssemblyTestServer> GetOrCreateServerAsync(string assembly) =>
         Task.FromResult<AssemblyTestServer>(_server);
 
